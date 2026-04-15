@@ -55,11 +55,11 @@ class GaugeTheme:
     bezel_color_bot:    QColor = field(default_factory=lambda: QColor(4,  4,  4))
     bezel_rim_color:    QColor = field(default_factory=lambda: QColor(40, 40, 38))
     bezel_corner_radius: float = 22.0
-    bezel_margin:       float  = 20.0
+    bezel_margin:       float  = 10.0
 
     # Corner screws
     show_screws:        bool   = True
-    screw_offset:       float  = 38.0   # from bezel edge to screw center
+    screw_offset:       float  = 28.0   # from bezel edge to screw center
     screw_r_dimple:     float  = 28.0
     screw_r_head:       float  = 19.0
     screw_slot_angle:   float  = 20.0   # degrees
@@ -70,8 +70,9 @@ class GaugeTheme:
     screw_dimple_color: QColor = field(default_factory=lambda: QColor(30, 28, 25))
 
     # Inner ring (between bezel and face)
-    ring_r_outer:       float  = 152.0
-    ring_r_inner:       float  = 144.0
+    ring_r_outer:       float  = 170.0
+    ring_r_inner:       float  = 161.0
+    face_r:             float  = 160.0   # gauge face radius (markings draw inside this)
     ring_color_hi:      QColor = field(default_factory=lambda: QColor(65, 62, 55))   # dark oxidized aluminum
     ring_color_mid_lo:  QColor = field(default_factory=lambda: QColor(38, 36, 32))
     ring_color_mid_hi:  QColor = field(default_factory=lambda: QColor(72, 68, 60))
@@ -91,7 +92,7 @@ class GaugeTheme:
     needle_color_hi:    QColor = field(default_factory=lambda: QColor(240, 230, 205))
     needle_color_mid:   QColor = field(default_factory=lambda: QColor(220, 210, 185))
     needle_color_lo:    QColor = field(default_factory=lambda: QColor(180, 170, 148))
-    needle_tip_r:       float  = 118.0
+    needle_tip_r:       float  = 132.0
     needle_base_r:      float  = 22.0
     needle_base_w:      float  = 5.5
 
@@ -243,10 +244,15 @@ class Gauge(QWidget):
     def paintEvent(self, event):
         w, h = self.width(), self.height()
         size = min(w, h)
+        # Scale so the bezel outer edge aligns with the widget boundary,
+        # not the raw 400-unit coordinate edge — eliminates dead panel margin.
+        m     = self.theme.bezel_margin
+        scale = size / (400.0 - 2 * m)
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
-        p.translate((w - size) / 2, (h - size) / 2)
-        p.scale(size / 400.0, size / 400.0)
+        p.translate((w - size) / 2 - m * scale,
+                    (h - size) / 2 - m * scale)
+        p.scale(scale, scale)
         try:
             self._draw_panel(p)
             self._draw_bezel(p)
@@ -405,7 +411,7 @@ class Gauge(QWidget):
 
     def _draw_face(self, p):
         t = self.theme
-        cx, cy, r = 200, 200, 143
+        cx, cy, r = 200, 200, int(t.face_r)
         grad = QRadialGradient(cx, cy - 20, 10, cx, cy, r)
         grad.setColorAt(0.0, self._tint(t.face_color_center))
         grad.setColorAt(0.6, self._tint(t.face_color_mid))
@@ -418,7 +424,7 @@ class Gauge(QWidget):
         t = self.theme
         cfg = self.config
         cx, cy = 200, 200
-        r_face = 143
+        r_face = t.face_r
 
         # danger arc
         if cfg.danger_from is not None:

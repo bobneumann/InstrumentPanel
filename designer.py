@@ -439,7 +439,7 @@ class _EditOverlay(QWidget):
 #  LayoutCanvas — the gauge grid
 # ============================================================
 
-_SPACING = 4   # pixels between gauges
+_SPACING = 2   # pixels between gauges
 
 
 class LayoutCanvas(QWidget):
@@ -1289,6 +1289,40 @@ def _simple_input(parent, title: str, prompt: str,
 
 
 # ============================================================
+#  Panel container — canvas fills full area, sidebar floats on top
+# ============================================================
+
+class _PanelContainer(QWidget):
+    """Canvas always fills the full container; sidebar overlays the right edge."""
+
+    _SIDEBAR_W = 230
+
+    def __init__(self):
+        super().__init__()
+        self._canvas  = None
+        self._sidebar = None
+
+    def setup(self, canvas: "LayoutCanvas", sidebar: "EditSidebar"):
+        self._canvas  = canvas
+        self._sidebar = sidebar
+        canvas.setParent(self)
+        sidebar.setParent(self)
+        canvas.show()
+        self._relayout()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._relayout()
+
+    def _relayout(self):
+        if not self._canvas:
+            return
+        w, h = self.width(), self.height()
+        self._canvas.setGeometry(0, 0, w, h)
+        self._sidebar.setGeometry(w - self._SIDEBAR_W, 0, self._SIDEBAR_W, h)
+
+
+# ============================================================
 #  DesignerWindow
 # ============================================================
 
@@ -1309,12 +1343,8 @@ class DesignerWindow(QMainWindow):
         self._sidebar.hide()
         self._edit_mode = False
 
-        self._container = QWidget()
-        hbox = QHBoxLayout(self._container)
-        hbox.setContentsMargins(0, 0, 0, 0)
-        hbox.setSpacing(0)
-        hbox.addWidget(self._canvas, 1)
-        hbox.addWidget(self._sidebar, 0)
+        self._container = _PanelContainer()
+        self._container.setup(self._canvas, self._sidebar)
         self.setCentralWidget(self._container)
 
         tb = self.addToolBar("Main")
