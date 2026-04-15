@@ -1,0 +1,35 @@
+# User-specific configuration (contains hostnames, credentials)
+hosts.json
+layout.json
+
+# SSH keys (never commit)
+*.key
+*.pem
+id_rsa
+id_ed25519
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# PyInstaller build output
+build/
+dist/
+*.spec
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.suo
+*.user
+
+# Logs
+*.log

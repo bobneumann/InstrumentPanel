@@ -1,0 +1,21 @@
+[
+  {
+    "_comment": "Copy this file to hosts.json and fill in your real values.",
+    "name":   "My Linux Server",
+    "host":   "192.168.1.10",
+    "port":   22,
+    "user":   "admin",
+    "key":    "C:/Users/YourName/.ssh/id_rsa",
+    "os":     "linux",
+    "poll_s": 2.0
+  },
+  {
+    "name":   "My Windows Server",
+    "host":   "192.168.1.20",
+    "port":   22,
+    "user":   "administrator",
+    "key":    "C:/Users/YourName/.ssh/id_rsa",
+    "os":     "windows",
+    "poll_s": 2.0
+  }
+]
