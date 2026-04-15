@@ -197,7 +197,7 @@ class Gauge(QWidget):
         self.theme  = theme  or theme_wwii_cockpit()
         self._value = (self.config.min_val + self.config.max_val) / 2
         self._display_value = self._value
-        self.setMinimumSize(300, 300)
+        self.setMinimumSize(40, 40)
 
         # Per-instance face tint — fixed at construction, unique per gauge
         if self.theme.face_variation:

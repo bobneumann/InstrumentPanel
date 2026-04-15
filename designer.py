@@ -253,14 +253,39 @@ class DividerWidget(QWidget):
 class _EditOverlay(QWidget):
     """
     Covers LayoutCanvas in edit mode.  Draws grid lines, selection border,
-    and drag-target highlight.  Captures all mouse events for drag logic.
+    resize handles, and drag/resize previews.  Captures all mouse events.
     """
+
+    _HANDLE_R = 6    # handle square half-size (px)
+    _HANDLE_HIT = 10 # hit-test radius (px)
 
     def __init__(self, canvas: "LayoutCanvas"):
         super().__init__(canvas)
         self._canvas = canvas
         self.setMouseTracking(True)
         self.setAttribute(Qt.WA_TranslucentBackground)
+        self._resize_handle  = None   # "e" | "s" | "se"
+        self._resize_preview = None   # (row_span, col_span) while dragging
+
+    # ── handle geometry helpers ──────────────────────────────────────── #
+
+    def _handle_points(self, r: QRect) -> dict:
+        """Centre points of the E, S, SE resize handles for rect r."""
+        return {
+            "e":  (r.right(),        r.center().y()),
+            "s":  (r.center().x(),   r.bottom()),
+            "se": (r.right(),        r.bottom()),
+        }
+
+    def _hit_handle(self, r: QRect, x: int, y: int):
+        """Return handle name "e"/"s"/"se" if (x,y) is close to one, else None."""
+        hr = self._HANDLE_HIT
+        for name, (hx, hy) in self._handle_points(r).items():
+            if abs(x - hx) <= hr and abs(y - hy) <= hr:
+                return name
+        return None
+
+    # ── paint ────────────────────────────────────────────────────────── #
 
     def paintEvent(self, event):
         c       = self._canvas
@@ -270,7 +295,7 @@ class _EditOverlay(QWidget):
         w, h    = self.width(), self.height()
         heights = c._row_heights()
 
-        # ── grid lines ──────────────────────────────────────────────────
+        # ── grid lines ───────────────────────────────────────────────────
         p.setPen(QPen(QColor(120, 130, 80, 90), 1))
         cell_w = w / m.grid_cols
         for col in range(m.grid_cols + 1):
@@ -282,10 +307,11 @@ class _EditOverlay(QWidget):
             y_acc += rh
         p.drawLine(0, int(y_acc), w, int(y_acc))
 
-        # ── drag target highlight ────────────────────────────────────────
+        # ── move drag target ─────────────────────────────────────────────
         if c._drag_cell is not None:
-            row, col = c._drag_cell
-            r = c._cell_rect_for(row, col, 1, 1)
+            row, col   = c._drag_cell
+            drag_slot  = c._model.slots[c._drag_idx]
+            r = c._cell_rect_for(row, col, drag_slot.row_span, drag_slot.col_span)
             occupied = any(
                 i != c._drag_idx and s.row == row and s.col == col
                 for i, s in enumerate(c._model.slots)
@@ -297,7 +323,7 @@ class _EditOverlay(QWidget):
             p.setBrush(Qt.NoBrush)
             p.drawRect(r.adjusted(1, 1, -1, -1))
 
-        # ── selection border ────────────────────────────────────────────
+        # ── selection border + resize handles ───────────────────────────
         if c._selected >= 0 and c._selected < len(m.slots):
             s = m.slots[c._selected]
             r = c._widget_rect(s)
@@ -305,32 +331,79 @@ class _EditOverlay(QWidget):
             p.setBrush(Qt.NoBrush)
             p.drawRect(r.adjusted(2, 2, -2, -2))
 
-        # ── "EDIT MODE" watermark ────────────────────────────────────────
+            if s.slot_type == "gauge":
+                # Resize ghost preview
+                if self._resize_preview:
+                    rs, cs = self._resize_preview
+                    pr = c._cell_rect_for(s.row, s.col, rs, cs)
+                    p.setPen(QPen(QColor(210, 175, 80, 140), 1, Qt.DashLine))
+                    p.setBrush(QColor(210, 175, 80, 18))
+                    p.drawRect(pr.adjusted(2, 2, -2, -2))
+
+                # Resize handles
+                hr = self._HANDLE_R
+                p.setPen(QPen(QColor(210, 175, 80, 230), 1))
+                p.setBrush(QColor(50, 46, 30))
+                for hx, hy in self._handle_points(r).values():
+                    p.drawRect(hx - hr, hy - hr, hr * 2, hr * 2)
+
+        # ── watermark ───────────────────────────────────────────────────
         p.setFont(QFont("Arial Narrow", 9, QFont.Bold))
         p.setPen(QColor(160, 170, 110, 90))
-        p.drawText(8, h - 8, "EDIT MODE  —  E to exit  —  click to select  —  drag to move")
-
+        p.drawText(8, h - 8,
+                   "EDIT MODE  —  E to exit  —  drag to move  —  drag corner/edge to resize")
         p.end()
 
+    # ── mouse ────────────────────────────────────────────────────────── #
+
     def mousePressEvent(self, event):
-        c   = self._canvas
-        pos = event.position()
+        c    = self._canvas
+        pos  = event.position()
         x, y = int(pos.x()), int(pos.y())
+
+        # Check resize handles on currently selected gauge first
+        if c._selected >= 0 and c._selected < len(c._model.slots):
+            s = c._model.slots[c._selected]
+            if s.slot_type == "gauge":
+                handle = self._hit_handle(c._widget_rect(s), x, y)
+                if handle:
+                    self._resize_handle  = handle
+                    self._resize_preview = (s.row_span, s.col_span)
+                    return
+
+        # Otherwise select + start move drag
+        self._resize_handle  = None
+        self._resize_preview = None
         idx = c._hit_slot(x, y)
         c.select_slot(idx)
-        # Only start drag for gauges, not dividers
         if idx >= 0 and c._model.slots[idx].slot_type == "gauge":
             c._drag_idx  = idx
             c._drag_cell = None
 
     def mouseMoveEvent(self, event):
-        c = self._canvas
+        c    = self._canvas
+        pos  = event.position()
+        x, y = int(pos.x()), int(pos.y())
+
+        # ── resize drag ──────────────────────────────────────────────────
+        if self._resize_handle:
+            m    = c._model
+            s    = m.slots[c._selected]
+            mr, mc = c._pos_to_cell(x, y)
+            rs, cs = s.row_span, s.col_span
+            if self._resize_handle in ("s", "se"):
+                rs = max(1, min(m.grid_rows - s.row, mr - s.row + 1))
+            if self._resize_handle in ("e", "se"):
+                cs = max(1, min(m.grid_cols - s.col, mc - s.col + 1))
+            self._resize_preview = (rs, cs)
+            self.update()
+            return
+
+        # ── move drag ────────────────────────────────────────────────────
         if c._drag_idx < 0:
             return
-        pos = event.position()
-        row, col = c._pos_to_cell(int(pos.x()), int(pos.y()))
+        row, col = c._pos_to_cell(x, y)
         slot = c._model.slots[c._drag_idx]
-        # Skip cells occupied by dividers
         target_slot = next(
             (s for s in c._model.slots if s.row == row and s.col == col
              and s.slot_type == "divider"), None
@@ -343,6 +416,17 @@ class _EditOverlay(QWidget):
 
     def mouseReleaseEvent(self, event):
         c = self._canvas
+
+        # ── commit resize ────────────────────────────────────────────────
+        if self._resize_handle and self._resize_preview:
+            rs, cs = self._resize_preview
+            c.resize_slot(c._selected, rs, cs)
+            self._resize_handle  = None
+            self._resize_preview = None
+            self.update()
+            return
+
+        # ── commit move ──────────────────────────────────────────────────
         if c._drag_idx >= 0 and c._drag_cell is not None:
             row, col = c._drag_cell
             c.move_slot(c._drag_idx, row, col)
@@ -355,7 +439,7 @@ class _EditOverlay(QWidget):
 #  LayoutCanvas — the gauge grid
 # ============================================================
 
-_SPACING = 8   # pixels between gauges
+_SPACING = 4   # pixels between gauges
 
 
 class LayoutCanvas(QWidget):
@@ -652,6 +736,14 @@ class LayoutCanvas(QWidget):
         self._overlay.update()
         self.slot_selected.emit(-1)
 
+    def resize_slot(self, idx: int, row_span: int, col_span: int):
+        """Resize a gauge by changing its row/col span, then refresh."""
+        self._model.slots[idx].row_span = row_span
+        self._model.slots[idx].col_span = col_span
+        self._reposition()
+        self._overlay.update()
+        self.slot_selected.emit(idx)   # refreshes sidebar spinboxes
+
     def set_grid_size(self, cols: int, rows: int):
         self._model.grid_cols = cols
         self._model.grid_rows = rows
@@ -848,6 +940,18 @@ class EditSidebar(QWidget):
         mm_l.addWidget(self._max)
         gs.addWidget(minmax)
 
+        gs.addWidget(QLabel("SIZE  (rows × cols)"))
+        size_w = QWidget()
+        size_l = QHBoxLayout(size_w)
+        size_l.setContentsMargins(0, 0, 0, 0); size_l.setSpacing(6)
+        size_l.addWidget(QLabel("ROWS"))
+        self._row_span = QSpinBox(); self._row_span.setRange(1, 10)
+        size_l.addWidget(self._row_span)
+        size_l.addWidget(QLabel("COLS"))
+        self._col_span = QSpinBox(); self._col_span.setRange(1, 10)
+        size_l.addWidget(self._col_span)
+        gs.addWidget(size_w)
+
         danger = QWidget()
         dng_l = QHBoxLayout(danger)
         dng_l.setContentsMargins(0, 0, 0, 0); dng_l.setSpacing(6)
@@ -1022,6 +1126,8 @@ class EditSidebar(QWidget):
         self._danger_chk.setChecked(has_d)
         self._danger_val.setEnabled(has_d)
         self._danger_val.setValue(slot.danger_from if has_d else 80.0)
+        self._row_span.setValue(slot.row_span)
+        self._col_span.setValue(slot.col_span)
 
     # ── actions ──────────────────────────────────────────────────────── #
 
@@ -1038,8 +1144,8 @@ class EditSidebar(QWidget):
             danger_from = self._danger_val.value() if self._danger_chk.isChecked() else None,
             row         = old.row,
             col         = old.col,
-            row_span    = old.row_span,
-            col_span    = old.col_span,
+            row_span    = self._row_span.value(),
+            col_span    = self._col_span.value(),
             slot_type   = "gauge",
         )
         self._canvas.update_slot(self._idx, new)
