@@ -114,7 +114,8 @@ def poll(config: dict, state: dict) -> tuple[dict, dict]:
         }, {**state, "ssh": None}
 
     metrics, state = _parse(data, state)
-    return {"health": "good", "message": "Connected", "metrics": metrics}, state
+    health, message = _apply_health_rules(metrics, c.get("health_rules", []))
+    return {"health": health, "message": message, "metrics": metrics}, state
 
 
 # ── internals ────────────────────────────────────────────────────────────── #
@@ -159,6 +160,26 @@ def _run(ssh, os_type: str):
     except Exception as exc:
         log.warning("SSH poll error: %s", exc)
         return None
+
+
+def _apply_health_rules(metrics: dict, rules: list) -> tuple[str, str]:
+    health  = "good"
+    message = "Connected"
+    for rule in rules:
+        metric = rule.get("metric")
+        if metric not in metrics:
+            continue
+        val = metrics[metric]
+        if rule.get("error_if_zero") and val == 0:
+            health  = "error"
+            message = f"{metric} is zero"
+        elif "error_above" in rule and val > rule["error_above"]:
+            health  = "error"
+            message = f"{metric} {val:.1f} > {rule['error_above']}"
+        elif "warn_above" in rule and val > rule["warn_above"] and health == "good":
+            health  = "warning"
+            message = f"{metric} {val:.1f} > {rule['warn_above']}"
+    return health, message
 
 
 def _parse(data: dict, state: dict) -> tuple[dict, dict]:
