@@ -1321,7 +1321,7 @@ def _simple_input(parent, title: str, prompt: str,
 # ============================================================
 
 class _PanelContainer(QWidget):
-    """Canvas always fills the full container; sidebar overlays the right edge."""
+    """Canvas fills the container; sidebar sits adjacent (not overlaid) when visible."""
 
     _SIDEBAR_W = 230
 
@@ -1346,7 +1346,9 @@ class _PanelContainer(QWidget):
         if not self._canvas:
             return
         w, h = self.width(), self.height()
-        self._canvas.setGeometry(0, 0, w, h)
+        sidebar_vis = self._sidebar and self._sidebar.isVisible()
+        canvas_w = w - (self._SIDEBAR_W if sidebar_vis else 0)
+        self._canvas.setGeometry(0, 0, canvas_w, h)
         self._sidebar.setGeometry(w - self._SIDEBAR_W, 0, self._SIDEBAR_W, h)
 
 
@@ -1894,6 +1896,7 @@ class DesignerWindow(QMainWindow):
         else:
             self._ops_canvas.set_edit_mode(enabled)
             self._ops_sidebar.setVisible(enabled)
+            self._ops_container._relayout()
             if not enabled:
                 self._ops_canvas.save(_ops_board_path())
 
