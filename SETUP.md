@@ -275,6 +275,37 @@ To start the daemon automatically at boot, use Windows Task Scheduler:
 - Action: `py C:\path\to\ControlRoom\daemon.py`
 - Check: "Run whether user is logged on or not"
 
+### Alternative: run the daemon in Docker (recommended for always-on machines)
+
+If the daemon machine has Docker Desktop installed, this is the cleaner option — no Python
+install required on that machine, and Docker handles restarts automatically.
+
+**One-time setup on the daemon machine:**
+```powershell
+# From the ControlRoom directory
+docker compose up -d --build
+```
+
+Docker will create a `data/` subdirectory and store `controlroom.db` there across restarts.
+
+**`hosts.json` note:** SSH key paths must use the container path `/run/keys/panel.key`
+(not the Windows path). The compose file mounts `C:/Users/Bob/.ssh/panel.key` there automatically.
+If your username or key path differs, edit `docker-compose.yml` accordingly.
+
+**Check logs:**
+```powershell
+docker logs controlroom-daemon-1
+```
+
+**Stop/start:**
+```powershell
+docker compose down
+docker compose up -d
+```
+
+The container is set to `restart: unless-stopped` — it will come back up automatically after
+a reboot as long as Docker Desktop is running.
+
 See **INSTALL.md** for deeper coverage of daemon persistence, SNMP, baselines, and troubleshooting.
 
 ---
